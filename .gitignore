@@ -38,3 +38,11 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+
+
+*.cmx
+*.o
+*.cmi
+*.out
+sample_commands/test_command
