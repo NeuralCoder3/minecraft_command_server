@@ -4,8 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -19,6 +21,8 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -133,6 +137,15 @@ public class CommandServer {
                 break;
             case "placeblocks":
                 handlePlaceBlocksCommand(command, writer);
+                break;
+            case "getplayers":
+                handleGetPlayersCommand(command, writer);
+                break;
+            case "getblocksfull":
+                handleGetBlocksFullCommand(command, writer);
+                break;
+            case "getblocks":
+                handleGetBlocksCommand(command, writer);
                 break;
             default:
                 sendErrorResponse(writer, "Unknown command: " + commandType);
@@ -263,6 +276,240 @@ public class CommandServer {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private void handleGetPlayersCommand(JsonObject command, PrintWriter writer) {
+        if (minecraftServer == null) {
+            sendErrorResponse(writer, "Minecraft server not available");
+            return;
+        }
+
+        try {
+            List<PlayerInfo> players = new ArrayList<>();
+            
+            for (ServerPlayerEntity player : minecraftServer.getPlayerManager().getPlayerList()) {
+                String dimensionName = "unknown";
+                if (player.getWorld() != null) {
+                    Identifier dimensionId = player.getWorld().getRegistryKey().getValue();
+                    dimensionName = dimensionId.toString();
+                }
+                
+                PlayerInfo playerInfo = new PlayerInfo(
+                    player.getName().getString(),
+                    player.getX(),
+                    player.getY(),
+                    player.getZ(),
+                    dimensionName
+                );
+                players.add(playerInfo);
+            }
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("status", "success");
+            response.addProperty("count", players.size());
+            response.add("players", gson.toJsonTree(players));
+            
+            writer.println(gson.toJson(response));
+            
+            // Log to console
+            Servermod.LOGGER.info("Queried {} players", players.size());
+
+        } catch (Exception e) {
+            sendErrorResponse(writer, "Error querying players: " + e.getMessage());
+            Servermod.LOGGER.error("Error in getplayers command", e);
+        }
+    }
+
+    private void handleGetBlocksFullCommand(JsonObject command, PrintWriter writer) {
+        if (!command.has("x") || !command.has("y") || !command.has("z")) {
+            sendErrorResponse(writer, "Missing 'x', 'y', or 'z' field for getblocks command");
+            return;
+        }
+
+        if (minecraftServer == null) {
+            sendErrorResponse(writer, "Minecraft server not available");
+            return;
+        }
+
+        try {
+            int centerX = command.get("x").getAsInt();
+            int centerY = command.get("y").getAsInt();
+            int centerZ = command.get("z").getAsInt();
+
+            // Validate coordinates
+            if (centerY < -64 || centerY > 320) {
+                sendErrorResponse(writer, "Y coordinate out of bounds: " + centerY);
+                return;
+            }
+
+            ServerWorld world = minecraftServer.getOverworld();
+            List<BlockInfo> blocks = new ArrayList<>();
+
+            // Query 16x16x16 area around the center position
+            int radius = 8; // Half of 16
+            for (int x = centerX - radius; x < centerX + radius; x++) {
+                for (int y = centerY - radius; y < centerY + radius; y++) {
+                    for (int z = centerZ - radius; z < centerZ + radius; z++) {
+                        // Skip if Y is out of world bounds
+                        if (y < -64 || y > 320) {
+                            continue;
+                        }
+
+                        BlockPos pos = new BlockPos(x, y, z);
+                        BlockState blockState = world.getBlockState(pos);
+                        Block block = blockState.getBlock();
+
+                        if (blockState.isAir()) {
+                            continue;
+                        }
+                        
+                        // Get block name
+                        Identifier blockId = Registries.BLOCK.getId(block);
+                        String blockName = blockId.toString();
+                        
+                        BlockInfo blockInfo = new BlockInfo(x, y, z, blockName);
+                        blocks.add(blockInfo);
+                    }
+                }
+            }
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("status", "success");
+            response.addProperty("center_x", centerX);
+            response.addProperty("center_y", centerY);
+            response.addProperty("center_z", centerZ);
+            response.addProperty("count", blocks.size());
+            response.add("blocks", gson.toJsonTree(blocks));
+            
+            writer.println(gson.toJson(response));
+            
+            // Log to console
+            Servermod.LOGGER.info("Queried {} blocks around ({}, {}, {})", 
+                blocks.size(), centerX, centerY, centerZ);
+
+        } catch (Exception e) {
+            sendErrorResponse(writer, "Error querying blocks: " + e.getMessage());
+            Servermod.LOGGER.error("Error in getblocksfull command", e);
+        }
+    }
+
+    private void handleGetBlocksCommand(JsonObject command, PrintWriter writer) {
+        if (!command.has("x") || !command.has("y") || !command.has("z")) {
+            sendErrorResponse(writer, "Missing 'x', 'y', or 'z' field for getblocks command");
+            return;
+        }
+
+        if (minecraftServer == null) {
+            sendErrorResponse(writer, "Minecraft server not available");
+            return;
+        }
+
+        try {
+            int centerX = command.get("x").getAsInt();
+            int centerY = command.get("y").getAsInt();
+            int centerZ = command.get("z").getAsInt();
+            boolean useRLE = command.has("RLE") && command.get("RLE").getAsBoolean();
+
+            // Validate coordinates
+            if (centerY < -64 || centerY > 320) {
+                sendErrorResponse(writer, "Y coordinate out of bounds: " + centerY);
+                return;
+            }
+
+            ServerWorld world = minecraftServer.getOverworld();
+            List<String> blocks = new ArrayList<>();
+
+            // Query 16x16x16 area around the center position
+            int radius = 8; // Half of 16
+            for (int x = centerX - radius; x < centerX + radius; x++) {
+                for (int y = centerY - radius; y < centerY + radius; y++) {
+                    for (int z = centerZ - radius; z < centerZ + radius; z++) {
+                        // Skip if Y is out of world bounds
+                        if (y < -64 || y > 320) {
+                            blocks.add(""); // Add empty string for out-of-bounds blocks
+                            continue;
+                        }
+
+                        BlockPos pos = new BlockPos(x, y, z);
+                        BlockState blockState = world.getBlockState(pos);
+                        if (blockState.isAir()) {
+                            blocks.add(""); // Add empty string for air blocks
+                            continue;
+                        }
+                        Block block = blockState.getBlock();
+                        
+                        // Get block name (short format without minecraft: prefix)
+                        Identifier blockId = Registries.BLOCK.getId(block);
+                        String blockName = blockId.getPath(); // Get just the path part (e.g., "stone" instead of "minecraft:stone")
+                        
+                        blocks.add(blockName);
+                    }
+                }
+            }
+
+            // Send response
+            JsonObject response = new JsonObject();
+            response.addProperty("status", "success");
+            response.addProperty("center_x", centerX);
+            response.addProperty("center_y", centerY);
+            response.addProperty("center_z", centerZ);
+            response.addProperty("count", blocks.size());
+            response.addProperty("RLE", useRLE);
+            
+            if (useRLE) {
+                // Apply run-length encoding
+                List<RLEBlock> rleBlocks = performRLE(blocks);
+                response.add("blocks", gson.toJsonTree(rleBlocks));
+                response.addProperty("rle_count", rleBlocks.size());
+                response.addProperty("compression_ratio", String.format("%.2f", (double) rleBlocks.size() / blocks.size()));
+            } else {
+                response.add("blocks", gson.toJsonTree(blocks));
+            }
+            
+            writer.println(gson.toJson(response));
+            
+            // Log to console
+            if (useRLE) {
+                Servermod.LOGGER.info("Queried {} blocks around ({}, {}, {}) with RLE compression: {} RLE entries", 
+                    blocks.size(), centerX, centerY, centerZ, performRLE(blocks).size());
+            } else {
+                Servermod.LOGGER.info("Queried {} blocks around ({}, {}, {})", 
+                    blocks.size(), centerX, centerY, centerZ);
+            }
+
+        } catch (Exception e) {
+            sendErrorResponse(writer, "Error querying blocks: " + e.getMessage());
+            Servermod.LOGGER.error("Error in getblocks command", e);
+        }
+    }
+
+    private List<RLEBlock> performRLE(List<String> blocks) {
+        List<RLEBlock> rleBlocks = new ArrayList<>();
+        
+        if (blocks.isEmpty()) {
+            return rleBlocks;
+        }
+        
+        String currentBlock = blocks.get(0);
+        int count = 1;
+        
+        for (int i = 1; i < blocks.size(); i++) {
+            String block = blocks.get(i);
+            if (block.equals(currentBlock)) {
+                count++;
+            } else {
+                rleBlocks.add(new RLEBlock(count, currentBlock));
+                currentBlock = block;
+                count = 1;
+            }
+        }
+        
+        // Add the last run
+        rleBlocks.add(new RLEBlock(count, currentBlock));
+        
+        return rleBlocks;
     }
 
     private void sendErrorResponse(PrintWriter writer, String errorMessage) {
