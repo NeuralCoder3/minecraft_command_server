@@ -3,15 +3,15 @@ package neuralcoder3.servermod.network;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.registry.Registries;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import neuralcoder3.servermod.Servermod;
 import neuralcoder3.servermod.config.ConfigManager;
 
@@ -163,8 +163,8 @@ public class CommandServer {
         
         // Send to Minecraft chat
         if (minecraftServer != null) {
-            Text chatMessage = Text.literal("[EXTERNAL] " + message);
-            minecraftServer.getPlayerManager().broadcast(chatMessage, false);
+            Component chatMessage = Component.literal("[EXTERNAL] " + message);
+            minecraftServer.getPlayerList().broadcastSystemMessage(chatMessage, false);
             Servermod.LOGGER.info("[EXTERNAL] {} (sent to chat)", message);
         } else {
             Servermod.LOGGER.warn("Minecraft server not available, logging to console only");
@@ -199,7 +199,7 @@ public class CommandServer {
                 return;
             }
 
-            ServerWorld world = minecraftServer.getOverworld();
+            ServerLevel world = minecraftServer.overworld();
             int placedCount = 0;
             int failedCount = 0;
             StringBuilder errors = new StringBuilder();
@@ -223,7 +223,7 @@ public class CommandServer {
 
                     // Place the block
                     BlockPos pos = new BlockPos(blockPlacement.x, blockPlacement.y, blockPlacement.z);
-                    world.setBlockState(pos, block.getDefaultState());
+                    world.setBlockAndUpdate(pos, block.defaultBlockState());
                     placedCount++;
 
                 } catch (Exception e) {
@@ -272,7 +272,7 @@ public class CommandServer {
                 return null;
             }
             
-            return Registries.BLOCK.get(blockId);
+            return BuiltInRegistries.BLOCK.getValue(blockId);
         } catch (Exception e) {
             return null;
         }
@@ -287,10 +287,10 @@ public class CommandServer {
         try {
             List<PlayerInfo> players = new ArrayList<>();
             
-            for (ServerPlayerEntity player : minecraftServer.getPlayerManager().getPlayerList()) {
+            for (ServerPlayer player : minecraftServer.getPlayerList().getPlayers()) {
                 String dimensionName = "unknown";
-                if (player.getWorld() != null) {
-                    Identifier dimensionId = player.getWorld().getRegistryKey().getValue();
+                if (player.level() != null) {
+                    Identifier dimensionId = player.level().dimension().identifier();
                     dimensionName = dimensionId.toString();
                 }
                 
@@ -343,7 +343,7 @@ public class CommandServer {
                 return;
             }
 
-            ServerWorld world = minecraftServer.getOverworld();
+            ServerLevel world = minecraftServer.overworld();
             List<BlockInfo> blocks = new ArrayList<>();
 
             // Query 16x16x16 area around the center position
@@ -365,7 +365,7 @@ public class CommandServer {
                         }
                         
                         // Get block name
-                        Identifier blockId = Registries.BLOCK.getId(block);
+                        Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
                         String blockName = blockId.toString();
                         
                         BlockInfo blockInfo = new BlockInfo(x, y, z, blockName);
@@ -418,7 +418,7 @@ public class CommandServer {
                 return;
             }
 
-            ServerWorld world = minecraftServer.getOverworld();
+            ServerLevel world = minecraftServer.overworld();
             List<String> blocks = new ArrayList<>();
 
             // Query 16x16x16 area around the center position
@@ -441,7 +441,7 @@ public class CommandServer {
                         Block block = blockState.getBlock();
                         
                         // Get block name (short format without minecraft: prefix)
-                        Identifier blockId = Registries.BLOCK.getId(block);
+                        Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
                         String blockName = blockId.getPath(); // Get just the path part (e.g., "stone" instead of "minecraft:stone")
                         
                         blocks.add(blockName);

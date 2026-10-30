@@ -3,8 +3,8 @@
 This Minecraft Fabric mod provides an external command interface that allows you to send commands to your Minecraft server via a network socket.
 
 Modloader: Fabric
-Java version: 21+
-Minecraft version: 1.21.8
+Java version: 25+
+Minecraft version: 26.3
 
 ## Installation
 
